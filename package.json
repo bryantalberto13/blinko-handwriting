@@ -1,0 +1,34 @@
+{
+  "name": "blinko-handwriting",
+  "version": "1.0.0",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "^1.2.2",
+    "@types/node": "^22.13.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "blinko": "^0.0.14",
+    "blinko-cli": "^0.0.4",
+    "vite-plugin-blinko": "^1.0.1",
+    "typescript": "^5.0.0",
+    "vite": "^4.0.0"
+  },
+  "description": "Handwritten notes with AI transcription for Blinko",
+  "scripts": {
+    "dev": "blinko-cli dev server",
+    "build": "vite build --mode production",
+    "test": "bun test",
+    "ngrok": "ngrok http 8080",
+    "release:publish": "vite build --mode production && blinko-cli release plugin"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "@trpc/client": "^11.1.0",
+    "@types/systemjs": "^6.15.1",
+    "@types/ws": "^8.5.10",
+    "preact": "^10.26.0",
+    "preact-iso": "^2.9.0",
+    "superjson": "^2.2.3",
+    "systemjs": "^6.15.1",
+    "ws": "^8.16.0"
+  }
+}

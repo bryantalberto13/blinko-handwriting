@@ -1,0 +1,16 @@
+{
+  "name": "handwritten-notes",
+  "author": "bryantalberto13",
+  "url": "",
+  "version": "0.1.0",
+  "minAppVersion": "0.0.0",
+  "displayName": {
+    "default": "Handwritten Notes"
+  },
+  "description": {
+    "default": "Write in a note with your tablet stylus. When you finish a page, AI transcribes the handwriting into the note as text (searchable, taggable, used by Blinko AI) and the handwriting image is attached."
+  },
+  "readme": {
+    "default": "README.md"
+  }
+}

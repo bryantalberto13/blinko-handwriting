@@ -1,0 +1,26 @@
+name: Release plugin
+
+# Push a tag like v0.1.0 (matching plugin.json "version") to publish release.zip,
+# which Blinko's "Install from GitHub" downloads.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install
+      - run: bun test
+      - run: bun run build
+      - name: Check tag matches plugin.json
+        run: test "v$(jq -r .version plugin.json)" = "${GITHUB_REF_NAME}"
+      - run: cd release && zip -r ../release.zip .
+      - run: gh release create "$GITHUB_REF_NAME" release.zip --title "$GITHUB_REF_NAME" --notes "Handwritten Notes $GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
