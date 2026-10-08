@@ -1,10 +1,12 @@
 name: Release plugin
 
-# Push a tag like v0.1.0 (matching plugin.json "version") to publish release.zip,
-# which Blinko's "Install from GitHub" downloads.
+# On every push to main, publish release v<plugin.json version> with release.zip if that
+# release doesn't exist yet. Blinko's "Install from GitHub" downloads the latest release.zip.
+# To ship a new version, bump "version" in plugin.json and push.
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,9 +20,14 @@ jobs:
       - run: bun install
       - run: bun test
       - run: bun run build
-      - name: Check tag matches plugin.json
-        run: test "v$(jq -r .version plugin.json)" = "${GITHUB_REF_NAME}"
-      - run: cd release && zip -r ../release.zip .
-      - run: gh release create "$GITHUB_REF_NAME" release.zip --title "$GITHUB_REF_NAME" --notes "Handwritten Notes $GITHUB_REF_NAME"
+      - name: Publish release if new
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(jq -r .version plugin.json)"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG already released; bump plugin.json version to publish."
+            exit 0
+          fi
+          (cd release && zip -r ../release.zip .)
+          gh release create "$TAG" release.zip --target "$GITHUB_SHA" --title "$TAG" --notes "Handwritten Notes $TAG"

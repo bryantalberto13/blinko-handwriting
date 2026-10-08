@@ -39,8 +39,8 @@ LiteLLM, custom base URL), Anthropic, Ollama. Azure OpenAI is not supported yet.
 Blinko → Settings → Plugins → install from GitHub with this repository's URL. Blinko downloads the
 latest release's `release.zip`.
 
-To publish a version: bump `version` in `plugin.json`, commit, then push a matching tag
-(`git tag v0.1.0 && git push --tags`). The Release workflow builds and attaches `release.zip`.
+To publish a version: bump `version` in `plugin.json` and push to `main`. The Release workflow builds
+and publishes a `v<version>` release with `release.zip` if that version isn't released yet.
 
 ## Development
 
