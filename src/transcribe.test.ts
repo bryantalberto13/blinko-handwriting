@@ -52,3 +52,30 @@ test('inkBounds ignores eraser strokes and pads', () => {
   expect(b.y).toBe(38);
   expect(b.x + b.w).toBeGreaterThanOrEqual(212);
 });
+
+import { normalize, formatInsert, DEFAULTS } from './settings';
+import { buildSystemPrompt } from './transcribe';
+
+test('settings normalize fills defaults and rejects bad values', () => {
+  expect(normalize(null)).toEqual(DEFAULTS);
+  const s = normalize({ insertStyle: 'weird', lineSpacing: 500, tag: ' #hand written ', paper: 'grid', transcribe: false });
+  expect(s.insertStyle).toBe('plain');
+  expect(s.lineSpacing).toBe(64);
+  expect(s.tag).toBe('hand-written');
+  expect(s.paper).toBe('grid');
+  expect(s.transcribe).toBe(false);
+});
+
+test('formatInsert applies style and tag', () => {
+  expect(formatInsert('a\nb', { insertStyle: 'plain', tag: '' })).toBe('a\nb\n');
+  expect(formatInsert('a\n\nb', { insertStyle: 'quote', tag: 'hw' })).toBe('> a\n>\n> b\n\n#hw\n');
+  expect(formatInsert('x', { insertStyle: 'heading', tag: '' })).toBe('### ✍️ Handwritten\n\nx\n');
+});
+
+test('system prompt carries language and extra instructions', () => {
+  const p = buildSystemPrompt({ language: 'Spanish', extraInstructions: 'w/ means with' });
+  expect(p).toContain('mostly in Spanish');
+  expect(p).toContain('w/ means with');
+  const r = buildRequest(cfg('openai'), 'x', p);
+  expect((r.body as any).messages[0].content).toBe(p);
+});

@@ -19,10 +19,24 @@ the pad by accident keeps your ink until you insert or clear it (until the page 
 **Stylus only** (on by default): once a stylus is detected, fingers and palms scroll the pad instead of
 drawing. Turn it off to draw with a finger.
 
+## Settings
+
+Settings → Plugins → ⚙ next to this plugin. Saved in your Blinko account, so they apply on every device.
+
+- **AI transcription:** use Blinko's Image model (default, falls back to Main), the Main model, or your own
+  model just for handwriting (Gemini, OpenAI, Claude, OpenRouter, Ollama, any OpenAI-compatible URL).
+  Language hint, extra instructions for the AI (abbreviations, names, date format), and a
+  **Test transcription** button that sends a sample image with the current settings.
+- **When you finish writing:** transcribe or just attach the image; review and edit the text before it
+  goes into the note; attach the image by default; text style (plain, under a "✍️ Handwritten" heading,
+  or a quote block); a tag to add (e.g. `#handwritten`).
+- **Writing pad:** lined, grid, dot-grid or blank paper; line spacing; pressure sensitivity on/off;
+  stylus-only default.
+
 ## Which AI model it uses
 
-The plugin uses the model chosen in Blinko **Settings → AI**: the **Image model** if set, otherwise the
-**Main chat model**. It must accept images (for example `gemini-2.5-flash`, `gpt-4o-mini`, a Claude
+By default the plugin uses the model chosen in Blinko **Settings → AI**: the **Image model** if set,
+otherwise the **Main chat model**. You can pick a different one in the plugin settings. It must accept images (for example `gemini-2.5-flash`, `gpt-4o-mini`, a Claude
 model, or an Ollama vision model such as `llava`/`qwen2.5vl`).
 
 Blinko's own AI endpoints are text-only and its image OCR is used only for embeddings, so the plugin

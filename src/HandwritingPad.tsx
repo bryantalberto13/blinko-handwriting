@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AUTO_INK, drawStroke, exportPng, pressureWidth, type Point, type Stroke } from './strokes';
 import { transcribe } from './transcribe';
+import { formatInsert, paperBackground, type Settings } from './settings';
 
 const COLORS = [AUTO_INK, '#2563eb', '#dc2626', '#16a34a'];
 const WIDTHS = [{ label: 'Fine', w: 2 }, { label: 'Medium', w: 3.5 }, { label: 'Bold', w: 6 }];
@@ -16,7 +17,7 @@ const setPref = (k: string, v: string) => { try { localStorage.setItem(`hw-${k}`
 const isDark = () => document.documentElement.classList.contains('dark');
 const screenColor = (c: string) => (c === AUTO_INK ? (isDark() ? '#e5e5e5' : '#111111') : c);
 
-export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () => void }) {
+export function HandwritingPad({ editor, settings, onClose }: { editor: any; settings: Settings; onClose: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -30,8 +31,10 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
   const [color, setColor] = useState(pref('color', AUTO_INK));
   const [width, setWidth] = useState(Number(pref('width', '3.5')));
   const [erasing, setErasing] = useState(false);
-  const [penOnly, setPenOnly] = useState(pref('penOnly', '1') === '1');
-  const [attachImage, setAttachImage] = useState(pref('attach', '1') === '1');
+  const [penOnly, setPenOnly] = useState(settings.penOnly);
+  const [attachImage, setAttachImage] = useState(settings.attachImage);
+  /** Transcribed text waiting for review (only with "Review before inserting" on). */
+  const [review, setReview] = useState<{ text: string; png: Blob } | null>(null);
   const [count, setCount] = useState(strokes.current.length); // re-render trigger for undo/redo state
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -65,7 +68,7 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
 
   const toPoint = (e: PointerEvent): Point => {
     const r = canvasRef.current!.getBoundingClientRect();
-    const p = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+    const p = settings.pressure && e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
     return { x: e.clientX - r.left, y: e.clientY - r.top, p };
   };
 
@@ -162,28 +165,34 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
     redraw(); setCount(0);
   };
 
+  /** Put text and/or the image into the note, then close. */
+  const finish = async (png: Blob, text: string) => {
+    if (text) editor.insertMarkdown(formatInsert(text, settings));
+    if (attachImage || !text) {
+      setBusy('Attaching the handwriting image…');
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+      await editor.uploadFiles([new File([png], `handwriting-${stamp}.png`, { type: 'image/png' })]);
+    }
+    draft = null;
+    strokes.current = [];
+    window.Blinko.toast.success(text ? 'Handwriting transcribed into the note' : 'Handwriting attached');
+    onClose();
+  };
+
   const insert = async (withText: boolean) => {
     setError('');
     const png = await exportPng(strokes.current);
     if (!png) { setError('Write something first.'); return; }
     if (!editor) { setError('Could not find the note editor. Close this and tap the pen button again.'); return; }
-    let text = '';
     try {
+      let text = '';
       if (withText) {
         setBusy('Transcribing your handwriting…');
-        text = await transcribe(png);
+        text = await transcribe(png, settings);
         if (!text) throw new Error('The model returned no text. Is the writing legible, and does the model support images?');
+        if (settings.reviewBeforeInsert) { setReview({ text, png }); return; }
       }
-      if (text) editor.insertMarkdown(`${text}\n`);
-      if (attachImage || !withText) {
-        setBusy('Attaching the handwriting image…');
-        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-        await editor.uploadFiles([new File([png], `handwriting-${stamp}.png`, { type: 'image/png' })]);
-      }
-      draft = null;
-      strokes.current = [];
-      window.Blinko.toast.success(withText ? 'Handwriting transcribed into the note' : 'Handwriting attached');
-      onClose();
+      await finish(png, text);
     } catch (e: any) {
       setError(e?.message || String(e));
     } finally {
@@ -191,12 +200,19 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
     }
   };
 
+  const insertReviewed = async () => {
+    if (!review) return;
+    try { await finish(review.png, review.text.trim()); }
+    catch (e: any) { setError(e?.message || String(e)); }
+    finally { setBusy(''); }
+  };
+
   const tool = (on: boolean) => `hw-tool${on ? ' on' : ''}`;
   const hasInk = count > 0;
 
   return (
     <div class="hw-pad">
-      <div class="hw-bar">
+      <div class="hw-bar" style={review ? { display: 'none' } : undefined}>
         <div class="hw-group">
           {COLORS.map(c => (
             <button key={c} class={tool(!erasing && color === c)} title={c === AUTO_INK ? 'Ink' : c}
@@ -221,13 +237,20 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
           <button class="hw-tool" onClick={() => setHeight(h => h + PAGE)}>+ Page</button>
         </div>
         <label class="hw-check" title="Once a stylus is detected, fingers and palms scroll instead of drawing">
-          <input type="checkbox" checked={penOnly} onChange={e => { const v = (e.target as HTMLInputElement).checked; setPenOnly(v); setPref('penOnly', v ? '1' : '0'); }} />
+          <input type="checkbox" checked={penOnly} onChange={e => setPenOnly((e.target as HTMLInputElement).checked)} />
           Stylus only
         </label>
       </div>
 
-      <div class="hw-scroll" ref={scrollRef}>
-        <div class="hw-paper" ref={wrapRef} style={{ height: `${height}px` }}>
+      {review && (
+        <div class="hw-review">
+          <label class="hw-lbl">Check the transcription, fix anything, then insert it.</label>
+          <textarea value={review.text} onInput={e => setReview({ ...review, text: (e.target as HTMLTextAreaElement).value })} />
+        </div>
+      )}
+
+      <div class="hw-scroll" ref={scrollRef} style={review ? { display: 'none' } : undefined}>
+        <div class="hw-paper" ref={wrapRef} style={{ height: `${height}px`, background: paperBackground(settings.paper, settings.lineSpacing) }}>
           <canvas ref={canvasRef} class={erasing ? 'erasing' : ''}
             onPointerDown={onDown as any} onPointerMove={onMove as any}
             onPointerUp={onUp as any} onPointerCancel={onUp as any} />
@@ -235,19 +258,32 @@ export function HandwritingPad({ editor, onClose }: { editor: any; onClose: () =
       </div>
 
       <div class="hw-foot">
-        <label class="hw-check">
-          <input type="checkbox" checked={attachImage} onChange={e => { const v = (e.target as HTMLInputElement).checked; setAttachImage(v); setPref('attach', v ? '1' : '0'); }} />
-          Also attach the handwriting image
-        </label>
+        {(settings.transcribe || review) && (
+          <label class="hw-check">
+            <input type="checkbox" checked={attachImage} onChange={e => setAttachImage((e.target as HTMLInputElement).checked)} />
+            Also attach the handwriting image
+          </label>
+        )}
         <div class="hw-msg">
           {busy && <span class="hw-busy">{busy}</span>}
           {error && <span class="hw-err">{error}</span>}
         </div>
         <button class="hw-btn ghost" disabled={!!busy} onClick={onClose}>Close</button>
-        {error && hasInk && <button class="hw-btn ghost" disabled={!!busy} onClick={() => insert(false)}>Attach image only</button>}
-        <button class="hw-btn" disabled={!!busy || !hasInk} onClick={() => insert(true)}>
-          {error ? 'Try again' : 'Transcribe & insert'}
-        </button>
+        {review ? (
+          <>
+            <button class="hw-btn ghost" disabled={!!busy} onClick={() => setReview(null)}>Back to page</button>
+            <button class="hw-btn" disabled={!!busy || !review.text.trim()} onClick={insertReviewed}>Insert</button>
+          </>
+        ) : settings.transcribe ? (
+          <>
+            {error && hasInk && <button class="hw-btn ghost" disabled={!!busy} onClick={() => insert(false)}>Attach image only</button>}
+            <button class="hw-btn" disabled={!!busy || !hasInk} onClick={() => insert(true)}>
+              {error ? 'Try again' : 'Transcribe & insert'}
+            </button>
+          </>
+        ) : (
+          <button class="hw-btn" disabled={!!busy || !hasInk} onClick={() => insert(false)}>Insert image</button>
+        )}
       </div>
     </div>
   );

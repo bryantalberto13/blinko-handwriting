@@ -4,8 +4,11 @@
  * Blinko's own AI endpoints only accept text (`ai.completions`), and its image OCR
  * (`describeImage`) only feeds embeddings and never returns the text. So we read the model
  * configured in Settings → AI (Image model first, then the Main chat model) through
- * `config.ai` and call that provider directly from the browser.
+ * `config.ai`, or a custom model from the plugin settings, and call that provider directly
+ * from the browser.
  */
+
+import type { Settings } from './settings';
 
 export interface ModelConfig {
   modelKey: string;
@@ -44,8 +47,16 @@ const OPENAI_DEFAULT_BASE: Record<string, string> = {
 
 const trimSlash = (s: string) => s.trim().replace(/\/+$/, '');
 
+/** System prompt plus the user's language hint and extra instructions from settings. */
+export function buildSystemPrompt(opts: { language?: string; extraInstructions?: string } = {}): string {
+  let p = SYSTEM_PROMPT;
+  if (opts.language?.trim()) p += `\n- The writing is mostly in ${opts.language.trim()}; keep each word in the language it was written in.`;
+  if (opts.extraInstructions?.trim()) p += `\n\nAdditional instructions from the writer:\n${opts.extraInstructions.trim()}`;
+  return p;
+}
+
 /** Build the HTTP request for the configured provider. Pure, so it is unit-tested. */
-export function buildRequest(cfg: ModelConfig, b64Png: string): HttpRequest {
+export function buildRequest(cfg: ModelConfig, b64Png: string, systemPrompt = SYSTEM_PROMPT): HttpRequest {
   const kind = cfg.provider.provider.toLowerCase();
   const key = cfg.provider.apiKey ?? '';
   const base = cfg.provider.baseURL ? trimSlash(cfg.provider.baseURL) : '';
@@ -60,7 +71,7 @@ export function buildRequest(cfg: ModelConfig, b64Png: string): HttpRequest {
         url: `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(id)}:generateContent`,
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
         body: {
-          systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+          systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: 'user', parts: [{ inline_data: { mime_type: 'image/png', data: b64Png } }, { text: USER_PROMPT }] }],
           generationConfig: { temperature: 0 },
         },
@@ -78,7 +89,7 @@ export function buildRequest(cfg: ModelConfig, b64Png: string): HttpRequest {
         body: {
           model,
           max_tokens: 4096,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: [{
             role: 'user',
             content: [
@@ -98,7 +109,7 @@ export function buildRequest(cfg: ModelConfig, b64Png: string): HttpRequest {
           stream: false,
           options: { temperature: 0 },
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: USER_PROMPT, images: [b64Png] },
           ],
         },
@@ -116,7 +127,7 @@ export function buildRequest(cfg: ModelConfig, b64Png: string): HttpRequest {
           model,
           temperature: 0,
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             {
               role: 'user',
               content: [
@@ -157,16 +168,26 @@ export function cleanTranscript(text: string): string {
   return t.trim();
 }
 
-/** Vision-capable model configured in Blinko: Image model, else Main chat model. */
-export async function loadModelConfig(): Promise<ModelConfig> {
+const NOT_CONFIGURED = 'No AI model is set up for handwriting. Either choose an Image model that can read images in Blinko Settings → AI (for example gemini-2.5-flash or gpt-4o-mini), or enter your own model in this plugin\'s settings (Settings → Plugins → ⚙).';
+
+/** The model to use, per the plugin settings: Blinko's Image model (falls back to Main), Main, or a custom one. */
+export async function loadModelConfig(s: Pick<Settings, 'modelSource' | 'customProvider' | 'customBaseURL' | 'customModel' | 'customApiKey'>): Promise<ModelConfig> {
+  if (s.modelSource === 'custom') {
+    if (!s.customModel) throw new Error('Custom model is selected in the plugin settings but no model name is filled in.');
+    return {
+      modelKey: s.customModel,
+      provider: { provider: s.customProvider || 'openai', baseURL: s.customBaseURL || null, apiKey: s.customApiKey || null, title: 'Custom model' },
+    };
+  }
   const api: any = window.Blinko.api;
-  for (const type of ['imageModel', 'mainModel'] as const) {
+  const order = s.modelSource === 'main' ? (['mainModel'] as const) : (['imageModel', 'mainModel'] as const);
+  for (const type of order) {
     try {
       const m = await api.config.ai.query({ type });
       if (m?.modelKey && m?.provider?.provider) return m as ModelConfig;
     } catch { /* older Blinko without config.ai, or not configured */ }
   }
-  throw new Error('No AI model is configured. In Blinko go to Settings → AI and choose an Image model that can read images (for example gemini-2.5-flash or gpt-4o-mini).');
+  throw new Error(NOT_CONFIGURED);
 }
 
 const toBase64 = (blob: Blob) =>
@@ -177,9 +198,9 @@ const toBase64 = (blob: Blob) =>
     r.readAsDataURL(blob);
   });
 
-export async function transcribe(png: Blob, signal?: AbortSignal): Promise<string> {
-  const cfg = await loadModelConfig();
-  const req = buildRequest(cfg, await toBase64(png));
+export async function transcribe(png: Blob, s: Settings, signal?: AbortSignal): Promise<string> {
+  const cfg = await loadModelConfig(s);
+  const req = buildRequest(cfg, await toBase64(png), buildSystemPrompt(s));
   let res: Response;
   try {
     res = await fetch(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal });
